@@ -1,0 +1,11 @@
+
+{
+  "name": "Hanafiy Fiqhi Ensiklopediyasi",
+  "short_name": "Hanafiy Fiqh",
+  "description": "Hanafiy fiqhi bo‘yicha manbalarga asoslangan savol-javob ensiklopediyasi.",
+  "lang": "uz",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b1714",
+  "theme_color": "#102a24"
+}
