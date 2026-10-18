@@ -984,7 +984,4 @@ if __name__ == "__main__":
     except Exception:
         logger.exception("Bot ishga tushishida jiddiy xato")
         raise
-'''
-path = Path("/mnt/data/bot.py")
-path.write_text(content, encoding="utf-8")
-print(f"Created {path} ({len(content.splitlines())} lines)")
+
