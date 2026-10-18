@@ -23,20 +23,20 @@ function showMessage(message) {
 }
 
 function sendToBot(action, query) {
-  if (tg && tg.initData) {
-    tg.sendData(JSON.stringify({
-      action: action,
-      query: query
-    }));
-    showMessage("So‘rovingiz Telegram botga yuborildi.");
-    return true;
+  if (tg && typeof tg.sendData === "function") {
+    try {
+      tg.sendData(JSON.stringify({
+        action: action,
+        query: query
+      }));
+      return true;
+    } catch (error) {
+      showMessage("Yuborishda xato yuz berdi. Telegram bot orqali urinib ko‘ring.");
+      return false;
+    }
   }
 
-  showMessage(
-    "Bu funksiya Telegram ichida ochilganda ishlaydi. " +
-    "Hozircha Telegram bot orqali /start buyrug‘ini yuboring."
-  );
-
+  showMessage("Mini App’ni bot klaviaturasidagi tugma orqali oching.");
   return false;
 }
 
@@ -54,29 +54,22 @@ function searchTopic() {
 
 searchButton.addEventListener("click", searchTopic);
 
-searchInput.addEventListener("keydown", function (event) {
+searchInput.addEventListener("keydown", function(event) {
   if (event.key === "Enter") {
     searchTopic();
   }
 });
 
-document.querySelectorAll(".category").forEach(function (button) {
-  button.addEventListener("click", function () {
-    const topic = button.dataset.topic;
-
-    searchInput.value = topic;
-    showMessage("Tanlangan bo‘lim: " + topic);
+document.querySelectorAll(".category").forEach(function(button) {
+  button.addEventListener("click", function() {
+    searchInput.value = button.dataset.topic;
+    showMessage("Tanlangan bo‘lim: " + button.dataset.topic);
     searchInput.focus();
   });
 });
 
-askQuestionButton.addEventListener("click", function () {
-  if (tg && tg.initData) {
-    sendToBot("question", "");
-    return;
-  }
-
+askQuestionButton.addEventListener("click", function() {
   showMessage(
-    "Savol yuborish uchun Telegram botini oching va /start buyrug‘ini yuboring."
+    "Savol yuborish uchun Telegram bot chatiga qayting va savolingizni yozing."
   );
 });
