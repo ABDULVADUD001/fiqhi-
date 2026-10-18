@@ -4,8 +4,10 @@ import aiohttp
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
-BASE_URL = "https://fatvo.uz"
-QUESTIONS_URL = f"{BASE_URL}/uz/questions"
+URL = (
+    "https://fatvo.uz/uz/answers/"
+    "08175646-0d54-4de2-9601-3bae5f1c5c11"
+)
 
 async def main():
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -14,45 +16,50 @@ async def main():
     async with aiohttp.ClientSession(
         headers=headers, timeout=timeout
     ) as session:
-        async with session.get(QUESTIONS_URL) as response:
-            print("Savollar sahifasi:", response.status)
+        async with session.get(URL) as response:
+            print("HTTP:", response.status)
+            response.raise_for_status()
             html = await response.text()
 
-        soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
 
-        link = None
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            text = a.get_text(" ", strip=True).lower()
+    for tag in soup(["script", "style", "nav", "footer"]):
+        tag.decompose()
 
-            if "/uz/answers/" in href and (
-                "tahorat" in text or "chekish" in text
-            ):
-                link = urljoin(BASE_URL, href)
-                break
+    text = soup.get_text("\n", strip=True)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-        if not link:
-            print("Savol havolasi topilmadi.")
-            return
+    def extract_between(start, end):
+        start_index = next(
+            (i for i, line in enumerate(lines)
+             if line.lower().rstrip(":") == start.lower()),
+            None
+        )
+        if start_index is None:
+            return "Ajratilmadi"
 
-        print("\nTopilgan manba:", link)
+        end_index = next(
+            (i for i in range(start_index + 1, len(lines))
+             if lines[i].lower().rstrip(":") == end.lower()),
+            None
+        )
+        if end_index is None:
+            return "Ajratilmadi"
 
-        async with session.get(link) as response:
-            print("Javob sahifasi:", response.status)
-            page_html = await response.text()
+        return "\n".join(lines[start_index + 1:end_index])
 
-        detail = BeautifulSoup(page_html, "html.parser")
+    question = extract_between("Savol", "Javob")
+    answer = extract_between(
+        "Javob", "Ulashish"
+    )
 
-        for tag in detail(["script", "style", "nav", "footer"]):
-            tag.decompose()
+    print("\n=== SAVOL ===\n")
+    print(question)
 
-        title = detail.title.get_text(" ", strip=True) if detail.title else ""
-        text = detail.get_text("\n", strip=True)
+    print("\n=== JAVOB ===\n")
+    print(answer)
 
-        print("\n=== SAHIFA NOMI ===")
-        print(title)
-
-        print("\n=== SAHIFA MATNI ===")
-        print(text[:10000])
+    print("\n=== ASL MANBA ===\n")
+    print(urljoin(URL, ""))
 
 asyncio.run(main())
