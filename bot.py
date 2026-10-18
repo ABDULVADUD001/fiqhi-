@@ -16,6 +16,10 @@ from aiogram.types import (
 )
 from aiogram.exceptions import TelegramAPIError
 
+# =========================
+# SOZLAMALAR
+# =========================
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -36,15 +40,15 @@ if not BOT_TOKEN:
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
 db = None
 http_session = None
-
 user_states = {}
 admin_states = {}
 
 
 # =========================
-# MENYU VA TUGMALAR
+# MENYU
 # =========================
 
 def menu():
@@ -93,7 +97,7 @@ def confirm_buttons(qid):
 
 
 # =========================
-# MA'LUMOTLAR BAZASI
+# BAZA
 # =========================
 
 async def init_database():
@@ -129,10 +133,10 @@ async def init_database():
     """)
 
     await db.commit()
-    logging.info("SQLite bazasi tayyor: %s", DB_PATH)
+    logging.info("Baza tayyor: %s", DB_PATH)
 
 
-async def save_user(message: Message):
+async def save_user(message):
     if not message.from_user:
         return
 
@@ -144,18 +148,23 @@ async def save_user(message: Message):
         ON CONFLICT(telegram_id) DO UPDATE SET
             username=excluded.username,
             full_name=excluded.full_name
-    """, (
-        user.id,
-        user.username,
-        user.full_name or "",
-    ))
+    """, (user.id, user.username, user.full_name or ""))
 
     await db.commit()
 
 
 # =========================
-# MATNNI NORMALIZATSIYA QILISH
+# MATN VA QIDIRUV
 # =========================
+
+STOP_WORDS = {
+    "va", "yoki", "ham", "bu", "shu", "bilan", "uchun",
+    "men", "menga", "siz", "nima", "qanday", "qilib",
+    "ekan", "edi", "mi", "mumkin", "haqida", "iltimos",
+    "ayting", "bering", "mening", "uning", "bor", "deb",
+    "the", "and", "is", "of", "to",
+}
+
 
 def normalize(text):
     text = (text or "").lower()
@@ -166,6 +175,10 @@ def normalize(text):
         "ғ": "г",
         "ҳ": "х",
         "ё": "е",
+        "ʼ": "'",
+        "’": "'",
+        "ʻ": "'",
+        "`": "'",
     }
 
     for old, new in replacements.items():
@@ -174,29 +187,22 @@ def normalize(text):
     return re.sub(r"[^a-zа-я0-9\s]", " ", text)
 
 
-STOP_WORDS = {
-    "va", "yoki", "ham", "bu", "shu", "bilan", "uchun",
-    "men", "menga", "siz", "nima", "qanday", "qilib",
-    "ekan", "edi", "mi", "mumkin", "boladimi", "bo'ladimi",
-    "haqida", "iltimos", "ayting", "bering",
-    "the", "and", "is", "of", "to",
-}
-
-
 def words(text):
-    result = set(re.findall(r"[a-zа-я0-9]+", normalize(text)))
-    return {w for w in result if len(w) > 1 and w not in STOP_WORDS}
+    found = set(re.findall(r"[a-zа-я0-9]+", normalize(text)))
+    return {
+        word for word in found
+        if len(word) > 1 and word not in STOP_WORDS
+    }
 
 
 def make_search_variants(query):
-    """Bir savolni bir necha usulda qidirishga yordam beradi."""
     original = " ".join(normalize(query).split())
     variants = [original]
 
-    # Ko‘p uchraydigan yozilish variantlari.
     replacements = [
-        ("tahorat", "tahorat"),
         ("tavharat", "tahorat"),
+        ("tahoratim", "tahorat"),
+        ("tahoratni", "tahorat"),
         ("namozim", "namoz"),
         ("namozni", "namoz"),
         ("namozda", "namoz"),
@@ -213,18 +219,28 @@ def make_search_variants(query):
     if simplified not in variants:
         variants.append(simplified)
 
-    # API qidiruvi uchun qisqaroq kalit so‘zlar.
     tokens = [
-        w for w in original.split()
-        if w not in STOP_WORDS and len(w) > 2
+        token for token in original.split()
+        if token not in STOP_WORDS and len(token) > 2
     ]
 
     if len(tokens) > 4:
-        short_query = " ".join(tokens[:4])
-        if short_query not in variants:
-            variants.append(short_query)
+        short = " ".join(tokens[:4])
+        if short not in variants:
+            variants.append(short)
 
     return variants[:3]
+
+
+def get_uz(value):
+    if isinstance(value, dict):
+        return str(
+            value.get("uz")
+            or value.get("uz-Latn")
+            or value.get("uz-Cyrl")
+            or ""
+        )
+    return str(value or "")
 
 
 # =========================
@@ -232,27 +248,21 @@ def make_search_variants(query):
 # =========================
 
 async def fetch_fatvo(query):
-    """
-    Fatvo.uz ommaviy API'sidan savollarni qidiradi.
-    Tarmoq xatosi bo‘lsa botning o‘zi to‘xtab qolmaydi.
-    """
     global http_session
 
     if http_session is None or http_session.closed:
-        timeout = aiohttp.ClientTimeout(total=12)
         http_session = aiohttp.ClientSession(
-            timeout=timeout,
+            timeout=aiohttp.ClientTimeout(total=15),
             headers={
                 "User-Agent": "HanafiyFiqhiEnsiklopediyasi/1.0",
                 "Accept": "application/json",
             },
         )
 
-    all_items = {}
-    variants = make_search_variants(query)
+    found = {}
 
-    for search_text in variants:
-        if not search_text:
+    for variant in make_search_variants(query):
+        if not variant:
             continue
 
         for attempt in range(2):
@@ -262,20 +272,18 @@ async def fetch_fatvo(query):
                     params={
                         "page": 1,
                         "limit": 10,
-                        "search": search_text,
+                        "search": variant,
                         "sort": "created",
                     },
                 ) as response:
+
                     if response.status != 200:
                         logging.warning(
-                            "Fatvo.uz API statusi: %s",
-                            response.status,
+                            "Fatvo API HTTP %s", response.status
                         )
                         break
 
-                    payload = await response.json(
-                        content_type=None
-                    )
+                    payload = await response.json(content_type=None)
 
                     if isinstance(payload, list):
                         items = payload
@@ -286,67 +294,49 @@ async def fetch_fatvo(query):
                     else:
                         items = []
 
-                    for item in items:
-                        if not isinstance(item, dict):
-                            continue
+                    if not isinstance(items, list):
+                        items = []
 
-                        item_id = item.get("id")
-                        if item_id:
-                            all_items[str(item_id)] = item
+                    for item in items:
+                        if isinstance(item, dict) and item.get("id"):
+                            found[str(item["id"])] = item
 
                     break
 
-            except (
-                aiohttp.ClientError,
-                asyncio.TimeoutError,
-                ValueError,
-            ):
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
                 logging.exception(
-                    "Fatvo.uz so‘rovida xato, urinish %s",
-                    attempt + 1,
+                    "Fatvo API xatosi, urinish %s", attempt + 1
                 )
                 if attempt == 0:
                     await asyncio.sleep(1)
 
-    return list(all_items.values())
-
-
-def get_uz(value):
-    if isinstance(value, dict):
-        return str(value.get("uz") or value.get("uz-Latn") or "")
-    return str(value or "")
+    return list(found.values())
 
 
 def candidate_score(query, item):
     query_words = words(query)
-    question = get_uz(item.get("question"))
-    title = get_uz(item.get("title"))
+    question_words = words(get_uz(item.get("question")))
+    title_words = words(get_uz(item.get("title")))
 
-    candidate_words = words(question + " " + title)
-
-    if not query_words or not candidate_words:
+    if not query_words:
         return 0.0
 
-    matched = query_words & candidate_words
-    coverage = len(matched) / len(query_words)
-    precision = len(matched) / len(candidate_words)
+    question_match = (
+        len(query_words & question_words) / len(query_words)
+    )
 
-    # Savoldagi kalit so‘zlar qanchalik mosligini baholash.
-    score = 0.75 * coverage + 0.25 * precision
+    title_match = (
+        len(query_words & title_words) / len(query_words)
+        if title_words else 0.0
+    )
 
-    # Ayrim savollarda sarlavha muhim kalit so‘zlarni saqlaydi.
-    title_words = words(title)
-    if title_words and query_words & title_words:
-        score += 0.05
-
-    return min(score, 1.0)
+    return min(
+        0.85 * question_match + 0.15 * title_match,
+        1.0,
+    )
 
 
 async def search_fatvo_answer(query):
-    """
-    Kuchli matn mosligi bo‘lsa manbali nomzod qaytaradi.
-    Bu ball diniy hukmning to‘g‘riligini isbotlamaydi.
-    """
     try:
         items = await fetch_fatvo(query)
     except Exception:
@@ -356,20 +346,17 @@ async def search_fatvo_answer(query):
     candidates = []
 
     for item in items:
-        status = str(item.get("status", "")).lower()
-        scope = str(item.get("scope", "")).lower()
+        if str(item.get("status", "")).lower() != "answered":
+            continue
 
-        answer = get_uz(item.get("answer"))
-        question = get_uz(item.get("question"))
+        if str(item.get("scope", "")).lower() != "public":
+            continue
+
+        question = get_uz(item.get("question")).strip()
+        answer = get_uz(item.get("answer")).strip()
         item_id = item.get("id")
 
-        if status != "answered":
-            continue
-
-        if scope != "public":
-            continue
-
-        if not answer.strip() or not question.strip() or not item_id:
+        if not question or not answer or not item_id:
             continue
 
         score = candidate_score(query, item)
@@ -378,41 +365,34 @@ async def search_fatvo_answer(query):
     candidates.sort(key=lambda pair: pair[0], reverse=True)
 
     if not candidates:
+        logging.info("Fatvo javobi topilmadi: %s", query)
         return None
 
     best_score, best = candidates[0]
 
-    # Ehtiyotkor mezon: qisqa yoki noaniq moslik avtomatik javob bermaydi.
+    # Ehtiyotkor mezon. Ball diniy hukm to‘g‘riligini isbotlamaydi.
     if best_score < 0.72:
-        logging.info(
-            "Fatvo natijasi ishonchli mos kelmadi: %.2f",
-            best_score,
-        )
+        logging.info("Moslik past: %.2f | %s", best_score, query)
         return None
 
     if len(candidates) > 1:
-        second_score = candidates[1][0]
-
-        # Ikki natija juda yaqin bo‘lsa, admin tekshirsin.
-        if best_score - second_score < 0.04:
-            logging.info("Bir nechta o‘xshash Fatvo natijasi topildi")
+        if best_score - candidates[1][0] < 0.04:
+            logging.info("Bir nechta o‘xshash natija: %s", query)
             return None
 
     item_id = str(best["id"])
-    source_url = f"https://fatvo.uz/uz/answers/{item_id}"
 
     return {
         "question": get_uz(best.get("question")),
-        "title": get_uz(best.get("title")),
         "answer": get_uz(best.get("answer")),
-        "source_name": "Fatvo.uz — O‘zbekiston musulmonlari idorasi Fatvo markazi",
-        "source_url": source_url,
+        "source_name": "Fatvo.uz — Fatvo markazi",
+        "source_url": f"https://fatvo.uz/uz/answers/{item_id}",
         "score": best_score,
     }
 
 
 # =========================
-# BAZADAGI TASDIQLANGAN JAVOBLAR
+# TASDIQLANGAN JAVOBLAR
 # =========================
 
 async def search_answer(query):
@@ -440,8 +420,9 @@ async def search_answer(query):
         if not question_words:
             continue
 
-        coverage = len(query_words & question_words) / len(query_words)
-        precision = len(query_words & question_words) / len(question_words)
+        matched = len(query_words & question_words)
+        coverage = matched / len(query_words)
+        precision = matched / len(question_words)
 
         score = (
             0.75 * coverage
@@ -453,21 +434,20 @@ async def search_answer(query):
             best = row
             best_score = score
 
-    # Oddiy kalit-so‘z mosligi bilan fatvo to‘qilmaydi.
     return best if best_score >= 0.72 else None
 
 
 # =========================
-# ADMIN XABARLARI
+# SAVOLNI ADMIN TEKSHIRUVIGA YUBORISH
 # =========================
 
 async def send_to_admins(qid, uid, question):
     text = (
-        "📝 YANGI FIQH SAVOLI\n\n"
+        "📝 TEKSHIRISH KERAK BO‘LGAN FIQH SAVOLI\n\n"
         f"🔢 Savol: #{qid}\n"
         f"👤 Foydalanuvchi ID: {uid}\n\n"
         f"❓ {question}\n\n"
-        "Javob va manbani tekshiring."
+        "Manbadan mos va yetarlicha ishonchli javob topilmadi."
     )
 
     for admin_id in ADMIN_IDS:
@@ -481,7 +461,7 @@ async def send_to_admins(qid, uid, question):
             logging.exception("Adminga xabar yuborilmadi")
 
 
-async def submit_question(message: Message, question):
+async def submit_question(message, question):
     if not message.from_user:
         return
 
@@ -504,32 +484,29 @@ async def submit_question(message: Message, question):
     qid = cursor.lastrowid
 
     await message.answer(
-        f"✅ Savolingiz qabul qilindi!\nSavol raqami: #{qid}\n\n"
-        "Administrator javob va manbani tekshirganidan "
-        "keyin javob sizga yuboriladi.",
+        f"🕓 Savolingiz tekshiruvga yuborildi: #{qid}\n\n"
+        "Javob topilmagani yoki natija noaniq bo‘lgani "
+        "uchun administrator manbalarni tekshiradi.",
         reply_markup=menu(),
     )
 
     await send_to_admins(qid, message.from_user.id, question)
 
 
-async def answer_from_fatvo(message: Message, query):
-    """
-    Kuchli moslik topilsa manbani ko‘rsatadi.
-    Natija noaniq bo‘lsa savolni admin ko‘rib chiqadi.
-    """
+async def answer_from_fatvo(message, query):
     result = await search_fatvo_answer(query)
 
     if result:
         await message.answer(
-            "📚 FATVO.UZ'DAN TOPILGAN JAVOB\n\n"
+            "📚 MANBADAN TOPILGAN JAVOB\n\n"
             f"❓ Manbadagi savol:\n{result['question']}\n\n"
             f"✅ Javob:\n{result['answer']}\n\n"
             f"📖 Manba: {result['source_name']}\n"
             f"🔗 Havola: {result['source_url']}\n\n"
-            "⚠️ Bu avtomatik qidiruv natijasi. Muhim yoki "
-            "shaxsiy holatlarda manbaning to‘liq matnini "
-            "tekshiring va malakali olim bilan maslahatlashing."
+            "Eslatma: bu manbadagi javobning avtomatik "
+            "qidiruv natijasidir. Murakkab yoki shaxsiy "
+            "holatlarda malakali Hanafiy olim bilan maslahatlashing.",
+            reply_markup=menu(),
         )
         return
 
@@ -549,9 +526,9 @@ async def start(message: Message):
 
     await message.answer(
         "🕌 Hanafiy Fiqhi Ensiklopediyasiga xush kelibsiz!\n\n"
-        "📚 Fiqh bo‘yicha savol yuboring.\n"
-        "🔎 Tasdiqlangan javoblarni va Fatvo.uz manbalarini qidiring.\n\n"
-        "Noaniq savollar administrator tekshiruviga yuboriladi.",
+        "📚 Fiqh savol-javob — savolingizni yuboring.\n"
+        "🔎 Qidiruv — tasdiqlangan javoblar va manbalarni qidiring.\n"
+        "📖 Manbalar — foydalaniladigan manbalar haqida.",
         reply_markup=menu(),
     )
 
@@ -563,11 +540,13 @@ async def help_command(message: Message):
         "ℹ️ YORDAM\n\n"
         "/start — bosh menyu\n"
         "/profile — profilingiz\n"
+        "/cancel — amalni bekor qilish\n"
         "/admin — admin statistikasi\n"
         "/savollar — kutilayotgan savollar\n"
-        "/cancel — amalni bekor qilish\n\n"
+        "/health — texnik holat (faqat admin)\n\n"
         "📚 Fiqh savol-javob — savol yuborish.\n"
-        "🔎 Qidiruv — tasdiqlangan javoblar va Fatvo.uz'dan qidirish."
+        "🔎 Qidiruv — manbalar va tasdiqlangan javoblarni qidirish.",
+        reply_markup=menu(),
     )
 
 
@@ -577,10 +556,7 @@ async def cancel(message: Message):
         user_states.pop(message.from_user.id, None)
         admin_states.pop(message.from_user.id, None)
 
-    await message.answer(
-        "Amal bekor qilindi.",
-        reply_markup=menu(),
-    )
+    await message.answer("Amal bekor qilindi.", reply_markup=menu())
 
 
 @dp.message(F.text == "📚 Fiqh savol-javob")
@@ -588,9 +564,7 @@ async def ask_prompt(message: Message):
     if message.from_user:
         user_states[message.from_user.id] = "question"
 
-    await message.answer(
-        "Hanafiy fiqhi bo‘yicha savolingizni yozing."
-    )
+    await message.answer("Hanafiy fiqhi bo‘yicha savolingizni yozing.")
 
 
 @dp.message(F.text == "🔎 Qidiruv")
@@ -599,7 +573,7 @@ async def search_prompt(message: Message):
         user_states[message.from_user.id] = "search"
 
     await message.answer(
-        "Qidiruv uchun savol yoki kalit so‘z yozing.\n\n"
+        "Savol yoki kalit so‘z yozing.\n"
         "Masalan: tahoratni nima buzadi?"
     )
 
@@ -608,13 +582,13 @@ async def search_prompt(message: Message):
 async def sources(message: Message):
     await message.answer(
         "📖 MANBALAR\n\n"
-        "1. Fatvo.uz — O‘zbekiston musulmonlari idorasi "
-        "Fatvo markazining ommaviy savol-javoblari.\n"
-        "https://fatvo.uz/\n\n"
-        "Bot faqat mosligi yetarli deb baholangan natijani "
-        "avtomatik ko‘rsatadi. Bunday baho hukmning "
-        "to‘g‘riligiga mutlaq kafolat emas. Noaniq holatlarda "
-        "savol administratorga yuboriladi."
+        "Fatvo.uz — https://fatvo.uz/\n"
+        "Muslim.uz — https://muslim.uz/\n\n"
+        "Hozirgi avtomatik qidiruv Fatvo.uz ommaviy API'sidan "
+        "va admin tasdiqlagan bazadan foydalanadi. Muslim.uz "
+        "hozircha alohida avtomatik qidiruvga ulanmagan.\n\n"
+        "Qidiruv mosligi diniy hukmning to‘g‘riligiga "
+        "mutlaq kafolat bermaydi."
     )
 
 
@@ -653,18 +627,46 @@ async def profile(message: Message):
         f"🆔 ID: {uid}\n"
         f"❓ Jami savollar: {total}\n"
         f"🕓 Kutilmoqda: {pending}\n"
-        f"✅ Javob berilgan: {verified}"
+        f"✅ Javob berilgan: {verified}",
+        reply_markup=menu(),
     )
 
 
 # =========================
-# ADMIN BUYRUQLARI
+# ADMIN
 # =========================
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+
+
+@dp.message(Command("health"))
+async def health(message: Message):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await message.answer("⛔ Bu buyruq faqat admin uchun.")
+        return
+
+    db_status = "ulangan" if db is not None else "ulanmagan"
+    api_status = (
+        "ulangan"
+        if http_session is not None and not http_session.closed
+        else "hali ulanmagan"
+    )
+
+    await message.answer(
+        "🩺 TEXNIK HOLAT\n\n"
+        f"Ma’lumotlar bazasi: {db_status}\n"
+        f"HTTP sessiyasi: {api_status}\n"
+        f"Adminlar soni: {len(ADMIN_IDS)}\n\n"
+        "Bu tekshiruv kodning o‘zini avtomatik qayta yozmaydi. "
+        "Xatolar Railway Logs orqali tekshiriladi."
+    )
+
 
 @dp.message(Command("admin"))
 async def admin_stats(message: Message):
-    if not message.from_user or message.from_user.id not in ADMIN_IDS:
-        await message.answer("⛔ Bu buyruq faqat admin uchun.")
+    if not message.from_user or not is_admin(message.from_user.id):
+        await message.answer("⛔ Faqat admin uchun.")
         return
 
     cursor = await db.execute("SELECT COUNT(*) FROM users")
@@ -689,13 +691,14 @@ async def admin_stats(message: Message):
         f"❓ Jami savollar: {total}\n"
         f"🕓 Kutilmoqda: {pending}\n"
         f"✅ Tasdiqlangan: {verified}\n\n"
-        "/savollar — kutilayotgan savollar"
+        "/savollar — kutilayotgan savollar\n"
+        "/health — texnik holat"
     )
 
 
 @dp.message(Command("savollar"))
 async def pending_questions(message: Message):
-    if not message.from_user or message.from_user.id not in ADMIN_IDS:
+    if not message.from_user or not is_admin(message.from_user.id):
         await message.answer("⛔ Faqat admin uchun.")
         return
 
@@ -723,7 +726,7 @@ async def pending_questions(message: Message):
 
 @dp.callback_query(F.data.startswith("answer:"))
 async def begin_answer(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo‘q.", show_alert=True)
         return
 
@@ -747,14 +750,14 @@ async def begin_answer(callback: CallbackQuery):
     await callback.message.answer(
         f"Savol: {row['question']}\n\n"
         "Tekshirilgan javobni yuboring.\n"
-        "Bekor qilish: /cancel"
+        "Keyin manbani kiritasiz. /cancel — bekor qilish."
     )
     await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("reject:"))
 async def reject(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo‘q.", show_alert=True)
         return
 
@@ -776,7 +779,7 @@ async def reject(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("cancel:"))
 async def cancel_review(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo‘q.", show_alert=True)
         return
 
@@ -788,13 +791,13 @@ async def cancel_review(callback: CallbackQuery):
 
     await callback.answer("Bekor qilindi.")
     await callback.message.answer(
-        "Javob tasdiqlanmadi. Savol kutilayotgan holatda qoldi."
+        "Tasdiqlash bekor qilindi. Savol kutilayotgan holatda qoldi."
     )
 
 
 @dp.callback_query(F.data.startswith("confirm:"))
 async def confirm_answer(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
+    if not is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo‘q.", show_alert=True)
         return
 
@@ -807,7 +810,7 @@ async def confirm_answer(callback: CallbackQuery):
         or state.get("qid") != qid
     ):
         await callback.answer(
-            "Tasdiqlash ma’lumoti topilmadi.",
+            "Tasdiqlash ma’lumoti topilmadi. Javobni qayta kiriting.",
             show_alert=True,
         )
         return
@@ -820,6 +823,7 @@ async def confirm_answer(callback: CallbackQuery):
     row = await cursor.fetchone()
 
     if not row:
+        admin_states.pop(callback.from_user.id, None)
         await callback.answer("Savol topilmadi.", show_alert=True)
         return
 
@@ -833,11 +837,8 @@ async def confirm_answer(callback: CallbackQuery):
             status='verified', reviewed_by=?
         WHERE id=? AND status='pending'
     """, (
-        answer,
-        source_name,
-        source_url,
-        callback.from_user.id,
-        qid,
+        answer, source_name, source_url,
+        callback.from_user.id, qid,
     ))
     await db.commit()
     admin_states.pop(callback.from_user.id, None)
@@ -849,14 +850,14 @@ async def confirm_answer(callback: CallbackQuery):
             f"❓ Savol: {row['question']}\n\n"
             f"✅ Javob:\n{answer}\n\n"
             f"📖 Manba: {source_name}\n"
-            f"🔗 Havola: {source_url}\n\n"
-            "Murakkab shaxsiy holatlarda malakali olim bilan maslahatlashing.",
+            f"🔗 Havola: {source_url}",
             reply_markup=menu(),
         )
     except TelegramAPIError:
         logging.exception("Foydalanuvchiga xabar yuborilmadi")
         await callback.message.answer(
-            "Javob saqlandi, lekin foydalanuvchiga yuborilmadi."
+            "Javob bazaga saqlandi, lekin foydalanuvchiga "
+            "yuborilmadi. U botni /start orqali ishga tushirganini tekshiring."
         )
 
     await callback.message.answer(f"✅ #{qid} tasdiqlandi.")
@@ -864,7 +865,7 @@ async def confirm_answer(callback: CallbackQuery):
 
 
 # =========================
-# FOYDALANUVCHI MATNLARI
+# BARCHA MATNLAR
 # =========================
 
 @dp.message(F.text)
@@ -882,8 +883,8 @@ async def text_handler(message: Message):
 
     state = admin_states.get(uid)
 
-    # Admin javob va manba kiritish jarayoni
-    if state and uid in ADMIN_IDS:
+    # Adminning javob va manba kiritish jarayoni
+    if state and is_admin(uid):
         if state["step"] == "answer":
             if len(text) > 3500:
                 await message.answer("Javob 3500 belgidan oshmasin.")
@@ -893,7 +894,7 @@ async def text_handler(message: Message):
             state["step"] = "source"
 
             await message.answer(
-                "Manbani quyidagi formatda yuboring:\n\n"
+                "Manbani shu formatda yuboring:\n\n"
                 "MANBA NOMI | https://manba.uz/sahifa"
             )
             return
@@ -909,17 +910,15 @@ async def text_handler(message: Message):
 
             name = parts[0].strip()
             url = parts[1].strip()
-
             parsed = urlparse(url)
+
             if (
                 not name
                 or parsed.scheme not in ("http", "https")
                 or not parsed.netloc
                 or " " in url
             ):
-                await message.answer(
-                    "Manba nomi yoki havola noto‘g‘ri."
-                )
+                await message.answer("Manba nomi yoki havola noto‘g‘ri.")
                 return
 
             state["source_name"] = name
@@ -931,7 +930,7 @@ async def text_handler(message: Message):
                 f"Javob:\n{state['answer']}\n\n"
                 f"Manba: {name}\n"
                 f"Havola: {url}\n\n"
-                "Manbani o‘zingiz tekshirgach tasdiqlang.",
+                "Manbani tekshirgach tasdiqlash tugmasini bosing.",
                 reply_markup=confirm_buttons(state["qid"]),
             )
             return
@@ -944,8 +943,10 @@ async def text_handler(message: Message):
 
     mode = user_states.get(uid)
 
-    # Qidiruv: avval admin tasdiqlagan bazani, keyin Fatvo.uz'ni tekshiramiz.
     if mode == "search":
+        # Qidiruv bir marta ishlaydi; holatni oldindan tozalaymiz.
+        user_states.pop(uid, None)
+
         result = await search_answer(text)
 
         if result:
@@ -953,25 +954,23 @@ async def text_handler(message: Message):
                 "🔎 ADMIN TASDIQLAGAN JAVOB\n\n"
                 f"❓ Savol: {result['question']}\n\n"
                 f"✅ Javob:\n{result['answer']}\n\n"
-                f"📖 Manba: {result['source_name']}\n"
-                f"🔗 Havola: {result['source_url']}"
+                f"📖 Manba: {result['source_name'] or 'Ko‘rsatilmagan'}\n"
+                f"🔗 Havola: {result['source_url'] or 'Ko‘rsatilmagan'}",
+                reply_markup=menu(),
             )
             return
 
-        await message.answer(
-            "🔍 Fatvo.uz manbasidan qidiryapman..."
-        )
+        await message.answer("🔍 Fatvo.uz manbasidan qidiryapman...")
         await answer_from_fatvo(message, text)
         return
 
-    # Fiqh savol-javob: Fatvo.uz'dan qidiramiz.
     if mode == "question":
         user_states.pop(uid, None)
         await message.answer("🔍 Manbalarni tekshiryapman...")
         await answer_from_fatvo(message, text)
         return
 
-    # Menyudan tashqari yuborilgan oddiy matn ham savol sifatida ko‘riladi.
+    # Menyudan tashqari oddiy matn ham savol hisoblanadi.
     await answer_from_fatvo(message, text)
 
 
@@ -984,12 +983,13 @@ async def main():
 
     await init_database()
 
-    timeout = aiohttp.ClientTimeout(total=12)
-    http_session = aiohttp.ClientSession(timeout=timeout)
+    http_session = aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=15),
+        headers={"User-Agent": "HanafiyFiqhiEnsiklopediyasi/1.0"},
+    )
 
     try:
-        logging.info("Bot ishga tushmoqda...")
-        # Faqat bitta Railway instance polling qilishi kerak.
+        logging.info("Hanafiy Fiqhi Ensiklopediyasi ishga tushmoqda")
         await dp.start_polling(bot)
     finally:
         if http_session and not http_session.closed:
