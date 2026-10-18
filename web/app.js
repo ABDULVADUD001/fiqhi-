@@ -1,45 +1,54 @@
 
 const tg = window.Telegram?.WebApp;
 
-if (tg) {
-  tg.ready();
-  tg.expand();
-  tg.setHeaderColor("#102a24");
-  tg.setBackgroundColor("#0b1714");
-}
-
 const searchInput = document.getElementById("search");
 const searchButton = document.getElementById("searchBtn");
 const searchMessage = document.getElementById("searchMessage");
+const askQuestionButton = document.getElementById("askQuestionBtn");
 
-function showMessage(text) {
-  searchMessage.textContent = text;
+if (tg) {
+  tg.ready();
+  tg.expand();
+
+  try {
+    tg.setHeaderColor("#102a24");
+    tg.setBackgroundColor("#0b1714");
+  } catch (error) {
+    console.log("Telegram rang sozlamasi mavjud emas.");
+  }
+}
+
+function showMessage(message) {
+  searchMessage.textContent = message;
+}
+
+function sendToBot(action, query) {
+  if (tg && tg.initData) {
+    tg.sendData(JSON.stringify({
+      action: action,
+      query: query
+    }));
+    return true;
+  }
+
+  showMessage(
+    "Bu funksiya Telegram ichida ochilganda ishlaydi. " +
+    "Hozircha Telegram bot orqali savol yuboring."
+  );
+
+  return false;
 }
 
 function searchTopic() {
   const query = searchInput.value.trim();
 
   if (!query) {
-    showMessage("Avval qidiriladigan mavzuni yozing.");
+    showMessage("Avval fiqh mavzusini yozing.");
     searchInput.focus();
     return;
   }
 
-  showMessage("🔎 «" + query + "» mavzusi tanlandi.");
-
-  // Telegram botga qidiruv so‘rovini yuborish.
-  if (tg && tg.initData) {
-    tg.sendData(JSON.stringify({
-      action: "search",
-      query: query
-    }));
-    return;
-  }
-
-  showMessage(
-    "Qidiruv so‘rovi tayyor. Haqiqiy natijalarni olish uchun " +
-    "Mini App backend va Telegram bot bilan ulanishi kerak."
-  );
+  sendToBot("search", query);
 }
 
 searchButton.addEventListener("click", searchTopic);
@@ -55,8 +64,19 @@ document.querySelectorAll(".category").forEach(function (button) {
     const topic = button.dataset.topic;
 
     searchInput.value = topic;
-    showMessage("📚 «" + topic + "» bo‘limi tanlandi.");
+    showMessage("Tanlangan bo‘lim: " + topic);
 
     searchInput.focus();
   });
+});
+
+askQuestionButton.addEventListener("click", function () {
+  if (tg && tg.initData) {
+    tg.close();
+    return;
+  }
+
+  showMessage(
+    "Savol yuborish uchun Telegram botini oching va /start buyrug‘ini yuboring."
+  );
 });
