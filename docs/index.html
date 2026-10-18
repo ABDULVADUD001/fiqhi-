@@ -1,0 +1,76 @@
+
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#102a24">
+  <meta name="description" content="Hanafiy fiqhi bo‘yicha manbalarga asoslangan savol-javob ensiklopediyasi.">
+  <title>Hanafiy Fiqhi Ensiklopediyasi</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">☪</div>
+    <div>
+      <h1>Hanafiy Fiqhi</h1>
+      <p>Ensiklopediya</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="welcome">
+      <span class="eyebrow">ILM • AMAL • ODOB</span>
+      <h2>Fiqh savolingizga<br>javob izlang</h2>
+      <p>Hanafiy mazhabi asosida fiqh mavzularini o‘rganing va savollaringizni yuboring.</p>
+    </section>
+
+    <section class="search-section">
+      <label for="search">Nimani bilmoqchisiz?</label>
+      <div class="search-box">
+        <input id="search" type="search" placeholder="Masalan: Tahoratning farzlari..." autocomplete="off">
+        <button id="searchBtn" type="button" aria-label="Qidirish">🔎</button>
+      </div>
+      <p id="searchMessage" role="status" aria-live="polite">Savolingizni yozing yoki quyidagi bo‘limni tanlang.</p>
+    </section>
+
+    <section class="categories">
+      <h2>Fiqh bo‘limlari</h2>
+      <div class="category-grid">
+        <button class="category" type="button" data-topic="Tahorat">
+          <span>💧</span><strong>Tahorat</strong><small>Poklanish qoidalari</small>
+        </button>
+        <button class="category" type="button" data-topic="Namoz">
+          <span>🕌</span><strong>Namoz</strong><small>Namoz hukmlari</small>
+        </button>
+        <button class="category" type="button" data-topic="Ro‘za">
+          <span>🌙</span><strong>Ro‘za</strong><small>Ro‘za masalalari</small>
+        </button>
+        <button class="category" type="button" data-topic="Zakot">
+          <span>🤲</span><strong>Zakot</strong><small>Zakot hukmlari</small>
+        </button>
+      </div>
+    </section>
+
+    <section class="notice">
+      <h3>📚 Ishonchli manbalar</h3>
+      <p>Diniy masalalarga javob berishda manba va dalillarni tekshirish muhim. Tekshirilmagan ma’lumotlar tasdiqlangan fatvo sifatida ko‘rsatilmaydi.</p>
+    </section>
+
+    <section class="question-section">
+      <h2>Javob topolmadingizmi?</h2>
+      <p>Savolingizni bot orqali yuborishingiz mumkin.</p>
+      <button class="question-button" type="button" id="askQuestionBtn">Savol yuborish →</button>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Hanafiy Fiqhi Ensiklopediyasi</p>
+    <small>Ilmni ishonchli manbalardan o‘rganing.</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
