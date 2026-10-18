@@ -2,19 +2,13 @@
 import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 
-URL = (
-    "https://fatvo.uz/uz/answers/"
-    "08175646-0d54-4de2-9601-3bae5f1c5c11"
-)
+URL = "https://fatvo.uz/uz/answers/08175646-0d54-4de2-9601-3bae5f1c5c11"
 
 async def main():
-    headers = {"User-Agent": "Mozilla/5.0"}
-    timeout = aiohttp.ClientTimeout(total=25)
-
     async with aiohttp.ClientSession(
-        headers=headers, timeout=timeout
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=aiohttp.ClientTimeout(total=25)
     ) as session:
         async with session.get(URL) as response:
             print("HTTP:", response.status)
@@ -23,43 +17,40 @@ async def main():
 
     soup = BeautifulSoup(html, "html.parser")
 
+    # Faqat asosiy matnni qoldiramiz
     for tag in soup(["script", "style", "nav", "footer"]):
         tag.decompose()
 
-    text = soup.get_text("\n", strip=True)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in soup.get_text("\n").splitlines()
+        if line.strip()
+    ]
 
-    def extract_between(start, end):
-        start_index = next(
-            (i for i, line in enumerate(lines)
-             if line.lower().rstrip(":") == start.lower()),
-            None
-        )
-        if start_index is None:
-            return "Ajratilmadi"
+    def find_label(label):
+        for i, line in enumerate(lines):
+            if line.rstrip(":").strip().lower() == label.lower():
+                return i
+        return None
 
-        end_index = next(
-            (i for i in range(start_index + 1, len(lines))
-             if lines[i].lower().rstrip(":") == end.lower()),
-            None
-        )
-        if end_index is None:
-            return "Ajratilmadi"
+    q = find_label("Savol")
+    a = find_label("Javob")
+    share = find_label("Ulashish")
 
-        return "\n".join(lines[start_index + 1:end_index])
+    print("\n=== SAVOL ===")
+    if q is not None and a is not None:
+        print("\n".join(lines[q + 1:a]))
+    else:
+        print("Savol bo‘limi topilmadi.")
 
-    question = extract_between("Savol", "Javob")
-    answer = extract_between(
-        "Javob", "Ulashish"
-    )
+    print("\n=== JAVOB ===")
+    if a is not None:
+        end = share if share is not None and share > a else len(lines)
+        print("\n".join(lines[a + 1:end]))
+    else:
+        print("Javob bo‘limi topilmadi.")
 
-    print("\n=== SAVOL ===\n")
-    print(question)
-
-    print("\n=== JAVOB ===\n")
-    print(answer)
-
-    print("\n=== ASL MANBA ===\n")
-    print(urljoin(URL, ""))
+    print("\n=== MANBA ===")
+    print(URL)
 
 asyncio.run(main())
