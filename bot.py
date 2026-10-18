@@ -277,18 +277,33 @@ async def log_activity(user_id, action):
 
 
 async def submit_question(message, question):
-    if not message.from_user:
-        await message.answer("Foydalanuvchi ma'lumoti aniqlanmadi.")
-        return None
+    
+if not message.from_user:
+    await message.answer("Foydalanuvchi ma'lumoti aniqlanmadi.")
+    return None
 
-    uid = message.from_user.id
-    async with aiosqlite.connect(DB_PATH) as db:
+uid = message.from_user.id
+async with aiosqlite.connect(DB_PATH) as db:
+    columns = await table_columns(db, "questions")
+
+    if "telegram_id" in columns:
         cursor = await db.execute("""
-            INSERT INTO questions(user_id, question, status, created_at)
+            INSERT INTO questions(
+                telegram_id, user_id, question, status, created_at
+            )
+            VALUES (?, ?, ?, 'pending', ?)
+        """, (uid, uid, question.strip(), int(time.time())))
+    else:
+        cursor = await db.execute("""
+            INSERT INTO questions(
+                user_id, question, status, created_at
+            )
             VALUES (?, ?, 'pending', ?)
         """, (uid, question.strip(), int(time.time())))
-        question_id = cursor.lastrowid
-        await db.commit()
+
+    question_id = cursor.lastrowid
+    await db.commit()
+
 
     await log_activity(uid, "question_submitted")
     await message.answer(
